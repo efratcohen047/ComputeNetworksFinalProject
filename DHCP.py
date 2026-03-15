@@ -7,7 +7,7 @@ import json
 # The server listens on port 6767 instead of the real DHCP port (67)
 # because port 67 requires root/admin privileges on most systems.
 # Using 6767 lets us run without sudo during development.
-DHCP_SERVER_IP   = "172.20.10.3"
+DHCP_SERVER_IP   = "172.20.10.8"
 DHCP_SERVER_PORT = 6767
 CLIENT_PORT      = 68        # standard DHCP client port (not used here, just for reference)
 BUFFER_SIZE      = 1024
@@ -18,7 +18,7 @@ BUFFER_SIZE      = 1024
 POOL_START, POOL_END = 100, 199
 SUBNET_MASK = "255.255.255.0"
 GATEWAY     = "172.20.10.1"
-DNS_SERVER  = "172.20.10.3"
+DNS_SERVER  = "172.20.10.8"
 LEASE_TIME  = 600   # how long a client "owns" its IP (in seconds) = 10 minutes
 OFFER_TIMEOUT = 10  # if a client doesn't REQUEST within 10 seconds, we take back the offer
 
@@ -61,8 +61,8 @@ class DHCPServer:
         # Static IPs are pre-assigned to specific MACs (our DNS and app servers).
         # These never come from the pool and never expire.
         self.static_ips = {
-            "00:11:22:33:44:55": "172.20.10.3",   # DNS server
-            "aa:bb:cc:dd:ee:ff": "172.20.10.8"  # app server
+            "00:11:22:33:44:55": "172.20.10.8",   # DNS server
+            "aa:bb:cc:dd:ee:ff": "172.20.10.3"  # app server
         }
 
         # Once we send an OFFER, we hold the IP here until the client sends REQUEST.
