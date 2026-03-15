@@ -72,39 +72,56 @@ def parse_request(raw):
 
 # ─── File Transfer ────────────────────────────────────────────
 
-def send_over_rudp(filepath, client_ip, client_port):
+def send_over_rudp(filepath, ready_event):
     """
-    Read the MP3 file into memory and send it to the client using our custom
-    RUDP protocol (reliable UDP with sliding window, congestion control, etc.).
-    The client must already be listening on client_port before we call this.
+    Bind to RUDP_PORT and wait for the client to connect (SYN handshake),
+    then send the MP3 file using our custom RUDP protocol.
+
+    The client initiates the UDP connection so it can traverse its own
+    firewall/NAT — this is why the server waits instead of connecting out.
+    ready_event is set once we're bound and listening, so the HTTP handler
+    knows it's safe to send the response (which tells the client to connect).
     """
-    print(f"[APP SERVER] Sending {filepath} over RUDP → {client_ip}:{client_port}")
     try:
         with open(filepath, 'rb') as f:
             file_bytes = f.read()
-        sender = RUDPSender(client_ip, client_port)
+        sender = RUDPSender(RUDP_PORT)
+        ready_event.set()                    # tell HTTP handler we're ready
+        sender.wait_for_client(timeout=30)   # block until client sends SYN
+        print(f"[APP SERVER] Sending {filepath} over RUDP ({len(file_bytes):,} bytes)")
         sender.send_file(file_bytes)
         print("[APP SERVER] RUDP transfer complete!")
     except Exception as e:
+        ready_event.set()  # unblock HTTP handler even on error
         print(f"[APP SERVER] RUDP transfer failed: {e}")
 
-def send_over_tcp(filepath, client_ip, client_port):
+def send_over_tcp(filepath, ready_event):
     """
-    Read the MP3 file into memory and send it over a plain TCP connection.
-    Here the server acts as the TCP *client* (it connects to the client's listening port).
-    TCP handles reliability internally, so we just sendall() and close.
+    Listen on TCP_TRANSFER_PORT and wait for the client to connect,
+    then send the MP3 file over that TCP connection.
+
+    The client connects to us (instead of us connecting to the client)
+    so that firewalls and NAT don't block the transfer.
+    ready_event is set once we're listening, so the HTTP handler
+    knows it's safe to send the response.
     """
-    print(f"[APP SERVER] Sending {filepath} over TCP → {client_ip}:{client_port}")
     try:
         with open(filepath, 'rb') as f:
             file_bytes = f.read()
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.settimeout(30)
-        sock.connect((client_ip, client_port))
-        sock.sendall(file_bytes)
+        sock.bind(('0.0.0.0', TCP_TRANSFER_PORT))
+        sock.listen(1)
+        ready_event.set()                       # tell HTTP handler we're ready
+        conn, addr = sock.accept()
+        print(f"[APP SERVER] TCP client connected from {addr}, sending {len(file_bytes):,} bytes")
+        conn.sendall(file_bytes)
+        conn.close()
         sock.close()
         print("[APP SERVER] TCP transfer complete!")
     except Exception as e:
+        ready_event.set()  # unblock HTTP handler even on error
         print(f"[APP SERVER] TCP transfer failed: {e}")
 
 # ─── Route Handlers ───────────────────────────────────────────
@@ -136,13 +153,12 @@ def handle_download_rudp(params, client_addr):
 
     Flow:
       1. agent.py downloads the MP3 from YouTube to the server's downloads/ folder
-      2. We send the HTTP response immediately so the client doesn't time out waiting
-      3. The actual file transfer runs in a background thread after the HTTP reply
+      2. We start an RUDP sender that binds to RUDP_PORT and waits for the client
+      3. Once the sender is ready (bound and listening), we send the HTTP response
+      4. The client gets the response and connects to us on RUDP_PORT to receive the file
     """
-    url         = params.get('url', '')
-    title       = params.get('title', 'song')
-    client_port = int(params.get('client_port', RUDP_PORT))
-    client_ip   = client_addr[0]   # where the HTTP request came from = where to send the file
+    url   = params.get('url', '')
+    title = params.get('title', 'song')
 
     if not url:
         return {'status': 'error', 'message': 'No URL provided'}
@@ -152,16 +168,18 @@ def handle_download_rudp(params, client_addr):
     if result['status'] != 'success':
         return result
 
-    # Step 2: start the RUDP transfer in the background
+    # Step 2: start the RUDP transfer in the background, wait until it's listening
+    ready = threading.Event()
     threading.Thread(
         target=send_over_rudp,
-        args=(result['filepath'], client_ip, client_port),
+        args=(result['filepath'], ready),
         daemon=True
     ).start()
+    ready.wait(timeout=5)   # wait for sender to bind and be ready
 
     return {
         'status':   'success',
-        'message':  f'Sending {title} over RUDP to port {client_port}',
+        'message':  f'Sending {title} over RUDP on port {RUDP_PORT}',
         'filename': result['filename']
     }
 
@@ -169,11 +187,15 @@ def handle_download_tcp(params, client_addr):
     """
     Mode 2 (TCP variant): Same as handle_download_rudp but uses plain TCP.
     Useful for comparing transfer behavior between TCP and our RUDP implementation.
+
+    Flow:
+      1. agent.py downloads the MP3 from YouTube
+      2. We start a TCP listener on TCP_TRANSFER_PORT
+      3. Once listening, we send the HTTP response
+      4. The client gets the response, connects to us, and receives the file
     """
-    url         = params.get('url', '')
-    title       = params.get('title', 'song')
-    client_port = int(params.get('client_port', TCP_TRANSFER_PORT))
-    client_ip   = client_addr[0]
+    url   = params.get('url', '')
+    title = params.get('title', 'song')
 
     if not url:
         return {'status': 'error', 'message': 'No URL provided'}
@@ -182,15 +204,17 @@ def handle_download_tcp(params, client_addr):
     if result['status'] != 'success':
         return result
 
+    ready = threading.Event()
     threading.Thread(
         target=send_over_tcp,
-        args=(result['filepath'], client_ip, client_port),
+        args=(result['filepath'], ready),
         daemon=True
     ).start()
+    ready.wait(timeout=5)   # wait for listener to bind
 
     return {
         'status':   'success',
-        'message':  f'Sending {title} over TCP to port {client_port}',
+        'message':  f'Sending {title} over TCP on port {TCP_TRANSFER_PORT}',
         'filename': result['filename']
     }
 

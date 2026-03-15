@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from rudp import (
     RUDPSender, RUDPReceiver,
     make_packet, parse_packet,
-    TYPE_DATA, TYPE_ACK, TYPE_FIN,
+    TYPE_DATA, TYPE_ACK, TYPE_FIN, TYPE_SYN,
     HEADER_SIZE, MAX_SEGMENT_SIZE, RECEIVER_WINDOW
 )
 
@@ -163,30 +163,42 @@ def test_rudp_local_transfer_one_byte():
 
 
 def _run_rudp_transfer_test(data, label):
-    """Helper: spin up a local sender+receiver pair and verify integrity."""
+    """Helper: spin up a local sender+receiver pair and verify integrity.
+
+    Flow (matches the new architecture):
+      1. Sender binds to a random port and waits for a client SYN
+      2. Receiver connects to the sender (sends SYN, gets SYN-ACK)
+      3. Sender transmits the data, receiver reassembles it
+    """
     port = random.randint(50000, 59999)
     received = []
     error    = []
 
+    def send():
+        try:
+            s = RUDPSender(port)
+            s.wait_for_client(timeout=10)
+            s.send_file(data)
+        except Exception as e:
+            error.append(str(e))
+
     def recv():
         try:
-            r      = RUDPReceiver(port)
+            r      = RUDPReceiver('127.0.0.1', port)
             result = r.receive_file()
             received.append(result)
         except Exception as e:
             error.append(str(e))
 
-    t = threading.Thread(target=recv, daemon=True)
-    t.start()
-    time.sleep(0.5)   # give receiver enough time to bind before sender fires
+    st = threading.Thread(target=send, daemon=True)
+    st.start()
+    time.sleep(0.3)   # give sender time to bind before receiver connects
 
-    try:
-        s = RUDPSender('127.0.0.1', port)
-        s.send_file(data)
-    except Exception as e:
-        error.append(str(e))
+    rt = threading.Thread(target=recv, daemon=True)
+    rt.start()
 
-    t.join(timeout=60)
+    st.join(timeout=60)
+    rt.join(timeout=60)
 
     if error:
         check(f"Transfer ({label}) — no errors", False, error[0])
@@ -206,7 +218,8 @@ def _run_rudp_transfer_test(data, label):
 
 def test_rudp_congestion_state():
     section("RUDP: Congestion control initial state")
-    s = RUDPSender('127.0.0.1', 9999)   # don't connect, just check state
+    port = random.randint(50000, 59999)
+    s = RUDPSender(port)   # bind to random port, just check state
     check("cwnd starts at 1",          s.cwnd     == 1.0)
     check("ssthresh starts at 16",     s.ssthresh == 16.0)
     check("rwnd starts at RECEIVER_WINDOW", s.rwnd == RECEIVER_WINDOW)
@@ -217,7 +230,8 @@ def test_rudp_congestion_state():
 
 def test_rudp_effective_window():
     section("RUDP: Effective window logic")
-    s = RUDPSender('127.0.0.1', 9999)
+    port = random.randint(50000, 59999)
+    s = RUDPSender(port)
 
     s.cwnd = 10; s.rwnd = 64
     check("min(cwnd=10, rwnd=64) = 10", s._effective_window() == 10)
@@ -429,7 +443,7 @@ def test_integration_dhcp_full_dora():
         offered_ip, dns_ip = parse_dhcp_reply(offer_data)
 
         check("DHCP OFFER received",                offered_ip is not None)
-        check("OFFER gives a valid IP (127.0.0.x)", offered_ip.startswith('127.0.0.'))
+        check("OFFER gives a valid IP (10.0.0.x)",  offered_ip.startswith('10.0.0.'))
         check("OFFER includes DNS server IP",        dns_ip is not None)
 
         # REQUEST
@@ -460,7 +474,7 @@ def test_integration_dns_known_host():
 
         ip = parse_dns_response(response, txid)
         check("DNS resolves app.local",              ip is not None)
-        check("app.local resolves to 127.0.0.1",    ip == '127.0.0.1',
+        check("app.local resolves to 10.0.0.10",    ip == '10.0.0.10',
               f"got {ip}")
 
     except Exception as e:
@@ -497,24 +511,30 @@ def test_integration_rudp_end_to_end():
     received = []
     error    = []
 
+    def send():
+        try:
+            s = RUDPSender(port)
+            s.wait_for_client(timeout=10)
+            s.send_file(data)
+        except Exception as e:
+            error.append(str(e))
+
     def recv():
         try:
-            r = RUDPReceiver(port)
+            r = RUDPReceiver('127.0.0.1', port)
             received.append(r.receive_file())
         except Exception as e:
             error.append(str(e))
 
-    t = threading.Thread(target=recv, daemon=True)
-    t.start()
+    st = threading.Thread(target=send, daemon=True)
+    st.start()
     time.sleep(0.3)
 
-    try:
-        s = RUDPSender('127.0.0.1', port)
-        s.send_file(data)
-    except Exception as e:
-        error.append(str(e))
+    rt = threading.Thread(target=recv, daemon=True)
+    rt.start()
 
-    t.join(timeout=30)
+    st.join(timeout=30)
+    rt.join(timeout=30)
 
     if error:
         check("500 KB RUDP transfer — no errors", False, error[0])

@@ -12,10 +12,12 @@ DHCP_SERVER_PORT = 6767
 CLIENT_PORT      = 68        # standard DHCP client port (not used here, just for reference)
 BUFFER_SIZE      = 1024
 
-# IP pool: clients get addresses in the range 127.0.0.100 - 127.0.0.199
+# IP pool: clients get addresses in the range 10.0.0.100 - 10.0.0.199
+# Must be on the same subnet as the server so clients and servers can reach each other.
+# Using 127.0.0.x (loopback) would only work on the local machine.
 POOL_START, POOL_END = 100, 199
-SUBNET_MASK = "255.0.0.0"
-GATEWAY     = "127.0.0.1"
+SUBNET_MASK = "255.255.255.0"
+GATEWAY     = "10.0.0.1"
 DNS_SERVER  = "10.0.0.10"
 LEASE_TIME  = 600   # how long a client "owns" its IP (in seconds) = 10 minutes
 OFFER_TIMEOUT = 10  # if a client doesn't REQUEST within 10 seconds, we take back the offer
@@ -54,13 +56,13 @@ class DHCPServer:
     def __init__(self):
         # The dynamic pool is just a list of available IP strings.
         # We pop from the front when a new client connects, and insert back when they leave.
-        self.available_ips = [f"127.0.0.{i}" for i in range(POOL_START, POOL_END + 1)]
+        self.available_ips = [f"10.0.0.{i}" for i in range(POOL_START, POOL_END + 1)]
 
         # Static IPs are pre-assigned to specific MACs (our DNS and Agent servers).
         # These never come from the pool and never expire.
         self.static_ips = {
-            "00:11:22:33:44:55": "127.0.0.1",   # DNS server
-            "aa:bb:cc:dd:ee:ff": "127.0.0.1"    # Agent server
+            "00:11:22:33:44:55": "10.0.0.10",   # DNS server
+            "aa:bb:cc:dd:ee:ff": "10.0.0.10"    # Agent server
         }
 
         # Once we send an OFFER, we hold the IP here until the client sends REQUEST.
@@ -327,4 +329,4 @@ if __name__ == "__main__":
     try:
         DHCPServer().start()
     except KeyboardInterrupt:
-        print("\n[DHCP] Server shut down gracefully by user.")
+        print("\n[DHCP] Server shut down by user.")

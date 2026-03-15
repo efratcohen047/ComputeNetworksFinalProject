@@ -72,12 +72,19 @@ class RUDPSender:
     3. Flow Control       - Never send more packets than the receiver can buffer.
                             The receiver tells us its available space (rwnd) in
                             every ACK, and we cap our send rate accordingly.
+
+    Connection setup: The sender binds to a known port and waits for the
+    receiver to send a SYN packet. This lets the receiver (client) initiate
+    the UDP communication, which is required for traversing firewalls and NAT
+    when the client and server are on different machines.
     """
 
-    def __init__(self, dest_ip, dest_port):
-        self.dest = (dest_ip, dest_port)
+    def __init__(self, bind_port):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.bind(('0.0.0.0', bind_port))
         self.sock.settimeout(TIMEOUT)
+        self.dest = None
         self._fr_active = False
 
         # Congestion control state
@@ -104,6 +111,28 @@ class RUDPSender:
 
         # Clean print tracking — only print when cwnd changes by a whole integer
         self._last_printed_cwnd = -1
+
+    def wait_for_client(self, timeout=30):
+        """
+        Wait for the receiver (client) to send a SYN packet to establish the
+        connection. The client must initiate because it can traverse its own
+        firewall/NAT — the server cannot connect inward to the client.
+
+        Once we get the SYN, we note the client's address and send back a
+        SYN-ACK so the client knows we're ready.
+        """
+        self.sock.settimeout(timeout)
+        print(f"[RUDP] Sender waiting for client SYN...")
+        while True:
+            raw, addr = self.sock.recvfrom(HEADER_SIZE + MAX_SEGMENT_SIZE)
+            parsed = parse_packet(raw)
+            if parsed and parsed['type'] == TYPE_SYN:
+                self.dest = addr
+                ack = make_packet(TYPE_ACK, seq_num=0, ack_num=0, window_size=0)
+                self.sock.sendto(ack, addr)
+                print(f"[RUDP] Client connected from {addr}")
+                self.sock.settimeout(TIMEOUT)
+                return addr
 
     def _effective_window(self):
         """
@@ -183,7 +212,7 @@ class RUDPSender:
                         print(f"[RUDP] Fast Retransmit - seq={base} (3 dup-ACKs) -> cwnd={int(self.ssthresh + 3)}")
                         self.ssthresh = max(self.cwnd / 2, 2.0)
                         self.cwnd = self.ssthresh + 3
-                        next_se = base
+                        next_seq = base
                         self.dup_ack_count = 0
                         self._fr_active = True  # to block further FR until we move forward
                         self._last_printed_cwnd = int(self.cwnd)
@@ -241,17 +270,39 @@ class RUDPReceiver:
                       When out-of-order packets pile up (gaps in the sequence), rwnd shrinks,
                       telling the sender to slow down until the gaps are filled.
 
+    Connection setup: The receiver sends a SYN packet to the sender's known
+    port and waits for a SYN-ACK. This client-initiated handshake is what
+    allows RUDP to work across different machines — the client's outgoing
+    UDP packet punches through its firewall/NAT so return traffic can flow back.
+
     Note on rwnd behavior in practice:
     On a clean localhost run with no packet loss, everything arrives in order,
     the buffer never has out-of-order packets, and rwnd stays at 64 the whole time.
     rwnd will visibly drop and recover when you simulate packet loss for Wireshark.
     """
 
-    def __init__(self, listen_port):
+    def __init__(self, server_ip, server_port):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind(('0.0.0.0', listen_port))
+        self.server_addr = (server_ip, server_port)
         self.rwnd = RECEIVER_WINDOW
-        print(f"[RUDP] Receiver listening on port {listen_port}")
+
+        # Send SYN to the server to initiate the connection.
+        # The server is already listening and will reply with a SYN-ACK.
+        print(f"[RUDP] Connecting to server {server_ip}:{server_port}...")
+        syn = make_packet(TYPE_SYN, seq_num=0, ack_num=0, window_size=self.rwnd)
+        self.sock.settimeout(5)
+        for attempt in range(5):
+            self.sock.sendto(syn, self.server_addr)
+            try:
+                raw, _ = self.sock.recvfrom(HEADER_SIZE + MAX_SEGMENT_SIZE)
+                parsed = parse_packet(raw)
+                if parsed and parsed['type'] == TYPE_ACK:
+                    print(f"[RUDP] Connected to server at {server_ip}:{server_port}")
+                    break
+            except socket.timeout:
+                print(f"[RUDP] SYN retry {attempt + 1}/5...")
+        else:
+            raise ConnectionError("Failed to connect to RUDP server after 5 attempts")
 
         # Clean print tracking
         self._last_print_ack  = -1

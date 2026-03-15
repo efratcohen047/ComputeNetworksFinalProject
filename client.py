@@ -2,11 +2,9 @@ import socket
 import os
 import json
 import struct
-import threading
-import time
 import random
 import urllib.parse
-from rudp import RUDPReceiver, HEADER_SIZE, MAX_SEGMENT_SIZE
+from rudp import RUDPReceiver
 
 # ─── Constants ───────────────────────────────────────────────
 # These are the default server addresses used when running locally (single machine).
@@ -307,15 +305,15 @@ def http_get(path, server_ip):
 
 # ─── Step 4a: Receive file over RUDP ──────────────────────────
 
-def receive_over_rudp(filename):
+def receive_over_rudp(filename, server_ip):
     """
-    Open an RUDP receiver on RUDP_RECEIVE_PORT and wait for the server to push the file.
-    The receiver handles all the reliability logic (ACKs, reordering, flow control).
-    Once the transfer is complete, we save the bytes to client_downloads/.
+    Connect to the server's RUDP port and receive the file.
+    The client initiates the connection (SYN handshake) so it can traverse
+    firewalls and NAT — the server is already listening and waiting for us.
     """
     ensure_downloads()
-    print(f"[RUDP] Waiting for file on port {RUDP_RECEIVE_PORT}...")
-    receiver = RUDPReceiver(RUDP_RECEIVE_PORT)
+    print(f"[RUDP] Connecting to server {server_ip}:{RUDP_RECEIVE_PORT}...")
+    receiver = RUDPReceiver(server_ip, RUDP_RECEIVE_PORT)
     data     = receiver.receive_file()
     filepath = os.path.join(DOWNLOADS_DIR, filename)
     with open(filepath, 'wb') as f:
@@ -324,34 +322,28 @@ def receive_over_rudp(filename):
 
 # ─── Step 4b: Receive file over TCP ───────────────────────────
 
-def receive_over_tcp(filename):
+def receive_over_tcp(filename, server_ip):
     """
-    Listen on TCP_RECEIVE_PORT for the server to connect and send the file.
-    Note the reversed roles: the client listens, the server connects.
-    This is needed because the server knows when it's ready to send,
-    and the client doesn't need to repeatedly check — it just waits.
+    Connect to the server's TCP transfer port and receive the file.
+    The client initiates the TCP connection so it can traverse firewalls
+    and NAT — the server is already listening and waiting for us.
     """
     ensure_downloads()
-    print(f"[TCP] Waiting for file on port {TCP_RECEIVE_PORT}...")
+    print(f"[TCP] Connecting to server {server_ip}:{TCP_RECEIVE_PORT}...")
 
-    server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_sock.bind(('0.0.0.0', TCP_RECEIVE_PORT))
-    server_sock.listen(1)
-    server_sock.settimeout(60)
-
-    conn, addr = server_sock.accept()
-    print(f"[TCP] Server connected from {addr}, receiving...")
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(60)
+    sock.connect((server_ip, TCP_RECEIVE_PORT))
+    print(f"[TCP] Connected, receiving file...")
 
     data = b''
     while True:
-        chunk = conn.recv(4096)
+        chunk = sock.recv(4096)
         if not chunk:
             break
         data += chunk
 
-    conn.close()
-    server_sock.close()
+    sock.close()
 
     filepath = os.path.join(DOWNLOADS_DIR, filename)
     with open(filepath, 'wb') as f:
@@ -364,12 +356,10 @@ def download_song(url, title, server_ip):
     """
     Coordinate a full song download using either RUDP or TCP.
 
-    Important ordering: the receiver thread must start FIRST and bind its port
-    before we send the HTTP request to the server. If the server tries to connect
-    before we're listening, the transfer will fail.
-
-    The small time.sleep() between starting the thread and sending the HTTP request
-    gives the receiver thread enough time to call bind() and be ready.
+    Flow: send an HTTP request to the server (which downloads the song and
+    starts listening on the transfer port), then connect to that port to
+    receive the file. The client always initiates the transfer connection
+    so it works across firewalls and NAT.
     """
     safe_title = "".join(
         c for c in title if c.isalnum() or c in (' ', '-', '_')
@@ -385,42 +375,30 @@ def download_song(url, title, server_ip):
 
     if proto == '2':
         # ── TCP transfer ──
-        tcp_thread = threading.Thread(
-            target=receive_over_tcp,
-            args=(safe_title,),
-            daemon=True
-        )
-        tcp_thread.start()
-        time.sleep(0.3)   # give the listener time to call bind() before server connects
-
-        path   = f"/download_tcp?url={encoded_url}&title={encoded_title}&client_port={TCP_RECEIVE_PORT}"
+        # Step 1: ask the server to download the song and start listening
+        path   = f"/download_tcp?url={encoded_url}&title={encoded_title}"
         print(f"\n[CLIENT] Requesting TCP download: {title}")
         result = http_get(path, server_ip)
 
         if result and result.get('status') == 'success':
-            print("[CLIENT] Server confirmed. Receiving over TCP...")
-            tcp_thread.join()
-            print(f"\n✅ Done! Saved to client_downloads/{safe_title}")
+            # Step 2: server is now listening — connect to it and receive the file
+            print("[CLIENT] Server ready. Connecting to receive over TCP...")
+            receive_over_tcp(safe_title, server_ip)
+            print(f"\nDone! Saved to client_downloads/{safe_title}")
         else:
             print(f"[CLIENT] Server error: {result}")
     else:
         # ── RUDP transfer (default) ──
-        rudp_thread = threading.Thread(
-            target=receive_over_rudp,
-            args=(safe_title,),
-            daemon=True
-        )
-        rudp_thread.start()
-        time.sleep(0.5)   # RUDP needs a bit more time to set up than TCP
-
-        path   = f"/download?url={encoded_url}&title={encoded_title}&client_port={RUDP_RECEIVE_PORT}"
+        # Step 1: ask the server to download the song and start listening
+        path   = f"/download?url={encoded_url}&title={encoded_title}"
         print(f"\n[CLIENT] Requesting RUDP download: {title}")
         result = http_get(path, server_ip)
 
         if result and result.get('status') == 'success':
-            print("[CLIENT] Server confirmed. Receiving over RUDP...")
-            rudp_thread.join()
-            print(f"\n✅ Done! Saved to client_downloads/{safe_title}")
+            # Step 2: server is now listening — connect to it and receive the file
+            print("[CLIENT] Server ready. Connecting to receive over RUDP...")
+            receive_over_rudp(safe_title, server_ip)
+            print(f"\nDone! Saved to client_downloads/{safe_title}")
         else:
             print(f"[CLIENT] Server error: {result}")
 
