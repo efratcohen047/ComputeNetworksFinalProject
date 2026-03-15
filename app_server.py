@@ -21,9 +21,8 @@ HOST              = '0.0.0.0'   # accept connections from any machine, not just 
 def send_response(conn, body_dict, status=200):
     """
     Serialize a Python dict to JSON and send it back as a valid HTTP/1.1 response.
-    We manually build the response string because we're not using Flask —
-    just raw sockets — so we have to follow the HTTP format ourselves:
-      status line → headers → blank line → body
+    to follow the HTTP format:
+      status line -> headers -> blank line -> body
     """
     body = json.dumps(body_dict).encode('utf-8')
     response = (
@@ -47,7 +46,7 @@ def parse_request(raw):
 
     Example:
       b'GET /search?q=hello HTTP/1.1\\r\\n...'
-      → ('GET', '/search', {'q': 'hello'})
+      -> ('GET', '/search', {'q': 'hello'})
 
     Returns (None, None, {}) if the request is malformed.
     """
@@ -62,7 +61,7 @@ def parse_request(raw):
 
     if '?' in full_path:
         path, query_string = full_path.split('?', 1)
-        # parse_qs returns lists: {'q': ['hello']} → we flatten to {'q': 'hello'}
+        # parse_qs returns lists: {'q': ['hello']} we flatten to {'q': 'hello'}
         params = {k: v[0] for k, v in urllib.parse.parse_qs(query_string).items()}
     else:
         path   = full_path

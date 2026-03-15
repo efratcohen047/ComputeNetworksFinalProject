@@ -7,7 +7,7 @@ import json
 # The server listens on port 6767 instead of the real DHCP port (67)
 # because port 67 requires root/admin privileges on most systems.
 # Using 6767 lets us run without sudo during development.
-DHCP_SERVER_IP   = "172.20.10.8"
+DHCP_SERVER_IP   = '192.168.31.16'
 DHCP_SERVER_PORT = 6767
 CLIENT_PORT      = 68        # standard DHCP client port (not used here, just for reference)
 BUFFER_SIZE      = 1024
@@ -17,8 +17,8 @@ BUFFER_SIZE      = 1024
 # Using 127.0.0.x (loopback) would only work on the local machine.
 POOL_START, POOL_END = 100, 199
 SUBNET_MASK = "255.255.255.0"
-GATEWAY     = "172.20.10.1"
-DNS_SERVER  = "172.20.10.8"
+GATEWAY     = '192.168.31.1'
+DNS_SERVER  = '192.168.31.16'
 LEASE_TIME  = 600   # how long a client "owns" its IP (in seconds) = 10 minutes
 OFFER_TIMEOUT = 10  # if a client doesn't REQUEST within 10 seconds, we take back the offer
 
@@ -61,8 +61,8 @@ class DHCPServer:
         # Static IPs are pre-assigned to specific MACs (our DNS and app servers).
         # These never come from the pool and never expire.
         self.static_ips = {
-            "00:11:22:33:44:55": "172.20.10.8",   # DNS server
-            "aa:bb:cc:dd:ee:ff": "172.20.10.3"  # app server
+            "00:11:22:33:44:55": '192.168.31.16',   # DNS server
+            "aa:bb:cc:dd:ee:ff": '192.168.31.67'  # app server
         }
 
         # Once we send an OFFER, we hold the IP here until the client sends REQUEST.
@@ -198,7 +198,7 @@ class DHCPServer:
     def notify_dns(self, hostname, ip, action="add"):
         """
         After we assign or release an IP, we tell the DNS server about it
-        so it can add/remove the hostname → IP mapping dynamically.
+        so it can add/remove the hostname, IP mapping dynamically.
         We use a simple JSON message over UDP to port 5354 (our DNS management port).
         """
         try:
@@ -221,9 +221,9 @@ class DHCPServer:
         periodically even when no packets are arriving.
 
         DORA flow we handle here:
-          Client sends DISCOVER → we send OFFER
-          Client sends REQUEST  → we send ACK (or NAK if something is wrong)
-          Client sends RELEASE  → we free the IP
+          Client sends DISCOVER -> we send OFFER
+          Client sends REQUEST -> we send ACK (or NAK if something is wrong)
+          Client sends RELEASE -> we free the IP
         """
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -243,7 +243,7 @@ class DHCPServer:
                     if not xid or not m_type:
                         continue
 
-                    # ── DISCOVER → OFFER ──────────────────────────────────
+                    # ── DISCOVER -> OFFER ──────────────────────────────────
                     if m_type == DHCP_DISCOVER:
                         ip = None
 
@@ -251,23 +251,23 @@ class DHCPServer:
                         # 1. Static assignment (reserved for project servers)
                         if mac_str in self.static_ips:
                             ip = self.static_ips[mac_str]
-                            print(f"[DHCP] DISCOVER from {mac_str} → Static IP match: {ip}")
+                            print(f"[DHCP] DISCOVER from {mac_str}. Static IP match: {ip}")
 
-                        # 2. Already assigned (client is reconnecting — give same IP)
+                        # 2. Already assigned (client is reconnecting, we give them the same IP)
                         elif mac_str in self.assigned_ips:
                             ip, _ = self.assigned_ips[mac_str]
-                            print(f"[DHCP] DISCOVER from {mac_str} → Re-offering locked IP: {ip}")
+                            print(f"[DHCP] DISCOVER from {mac_str}. Re-offering locked IP: {ip}")
 
-                        # 3. Pending offer (client sent DISCOVER twice — re-offer same IP)
+                        # 3. Pending offer (client sent DISCOVER twice so we re-offer same IP)
                         elif mac_str in self.pending_offers:
                             ip, _ = self.pending_offers[mac_str]
-                            print(f"[DHCP] DISCOVER from {mac_str} → Re-offering pending IP: {ip}")
+                            print(f"[DHCP] DISCOVER from {mac_str}. Re-offering the waiting IP: {ip}")
 
                         # 4. New client — assign next available IP from pool
                         elif self.available_ips:
                             ip = self.available_ips.pop(0)
                             self.pending_offers[mac_str] = (ip, time.time())
-                            print(f"[DHCP] DISCOVER from {mac_str} → New dynamic offer: {ip}")
+                            print(f"[DHCP] DISCOVER from {mac_str}. New dynamic offer: {ip}")
 
                         if ip:
                             resp_packet = self.create_dhcp_response(xid, mac_bytes, ip, DHCP_OFFER)
@@ -275,7 +275,7 @@ class DHCPServer:
                         else:
                             print(f"[DHCP] NAK: Pool empty for {mac_str}")
 
-                    # ── REQUEST → ACK or NAK ──────────────────────────────
+                    # ── REQUEST -> ACK or NAK ──────────────────────────────
                     elif m_type == DHCP_REQUEST:
                         # Figure out what IP we expect this client to be requesting
                         expected_ip = self.static_ips.get(mac_str)
@@ -307,7 +307,7 @@ class DHCPServer:
                             s.sendto(resp_packet, addr)
                             print(f"[DHCP] NAK: Bad request from {mac_str} for IP {requested_ip}")
 
-                    # ── RELEASE → free the IP ─────────────────────────────
+                    # ── RELEASE -> free the IP ─────────────────────────────
                     elif m_type == DHCP_RELEASE:
                         if mac_str in self.assigned_ips:
                             ip, _ = self.assigned_ips.pop(mac_str)

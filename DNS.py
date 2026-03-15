@@ -38,19 +38,19 @@ FORMAT_DNS_ANSWER = '!HHHIH4s'         # name, type, class, ttl, rdlength, rdata
 # These are the hostnames our client uses to find the servers.
 # The DHCP server can also add entries here dynamically via notify_dns().
 DNS_TABLE = {
-    b'agent.local': "172.20.10.3",
-    b'app.local':   "172.20.10.3"
+    b'agent.local': '192.168.31.67', #currently the linux vm ip
+    b'app.local':   '192.168.31.67'
 }
 
 # Cache for external domain answers so we don't forward every single query.
-# Structure: domain_bytes → (ip_string, expiry_timestamp)
+# Structure: domain_bytes -> (ip_string, expiry_timestamp)
 dns_cache = {}
 
 
 def dns_management_api():
     """
     Runs in a background thread. Listens on port 5354 for JSON messages from
-    the DHCP server that tell us to add or remove hostname→IP mappings.
+    the DHCP server that tell us to add or remove hostname -> IP mappings.
 
     Example message:
       {"action": "add", "hostname": "host-aabbccddee01.local", "ip": "127.0.0.100"}
@@ -73,7 +73,7 @@ def dns_management_api():
 
             if action == "add":
                 DNS_TABLE[hostname] = ip
-                print(f"[DNS API] Added/Updated: {hostname.decode()} → {ip}")
+                print(f"[DNS API] Added/Updated: {hostname.decode()} -> {ip}")
             elif action == "remove" and hostname in DNS_TABLE:
                 del DNS_TABLE[hostname]
                 print(f"[DNS API] Removed: {hostname.decode()}")
@@ -95,7 +95,7 @@ def query_internet(domain_bytes):
         domain_str = domain_bytes.decode('utf-8')
         answers    = dns.resolver.resolve(domain_str, 'A')
         ip         = str(answers[0])
-        print(f"[INTERNET] Forwarded {domain_str} → {ip}")
+        print(f"[INTERNET] Forwarded {domain_str} -> {ip}")
         return ip
     except Exception as e:
         print(f"[INTERNET] Failed to resolve {domain_bytes}: {e}")
@@ -119,7 +119,7 @@ def lookup(domain_bytes):
     if domain_bytes in dns_cache:
         ip, expiry = dns_cache[domain_bytes]
         if time.time() < expiry:
-            print(f"[CACHE] Hit for {domain_bytes.decode('utf-8')} → {ip}")
+            print(f"[CACHE] Hit for {domain_bytes.decode('utf-8')} -> {ip}")
             return ip, INTERNET_TTL
         else:
             del dns_cache[domain_bytes]   # expired, remove it
@@ -232,7 +232,7 @@ def main():
             except Exception as e:
                 print(f"[DNS Server] Error handling query: {e}")
     except KeyboardInterrupt:
-        print("\n[DNS Server] Server shut down gracefully by user.")
+        print("\n[DNS Server] Server shut down by user.")
     finally:
         dns_socket.close()
 

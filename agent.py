@@ -211,10 +211,10 @@ def handle_request(request):
     The main entry point that app_server.py calls for every client action.
     Routes to the appropriate function based on the 'action' field:
 
-      download_url → download a specific YouTube URL and return the file path
-      search       → search YouTube by name and return a list of results
-      vibe         → ask AI for song suggestions matching a mood, then search those
-      history      → list all previously downloaded MP3 files
+      download_url: download a specific YouTube URL and return the file path
+      search: search YouTube by name and return a list of results
+      vibe: ask AI for song suggestions matching a mood, then search those
+      history: list all previously downloaded MP3 files
     """
     action = request.get('action')
 

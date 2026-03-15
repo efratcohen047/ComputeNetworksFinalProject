@@ -9,7 +9,7 @@ from rudp import RUDPReceiver
 # ─── Constants ───────────────────────────────────────────────
 # These are the default server addresses used when running locally (single machine).
 # When running across two computers, DHCP_SERVER should be the server machine's LAN IP.
-DHCP_SERVER       = "172.20.10.8"
+DHCP_SERVER       = '192.168.31.16'
 DHCP_PORT         = 6767   # our custom DHCP port (real DHCP uses 67, requires admin)
 DNS_PORT          = 53     # standard DNS port
 APP_PORT          = 5050   # app_server.py HTTP control port
@@ -122,8 +122,8 @@ def parse_dhcp_reply(data):
 def do_dhcp():
     """
     Run the full DHCP DORA handshake to get an IP address:
-      DISCOVER → server sends us OFFER
-      REQUEST  → server sends us ACK and the IP is officially ours
+      DISCOVER: server sends us OFFER
+      REQUEST: server sends us ACK and the IP is officially ours
 
     Returns (my_ip, dns_server_ip).
     Falls back to 127.0.0.1 for both if anything fails.
@@ -144,7 +144,7 @@ def do_dhcp():
         # ── OFFER ──
         offer_data, _ = sock.recvfrom(1024)
         offered_ip, dns_ip = parse_dhcp_reply(offer_data)
-        print(f"[DHCP] Got OFFER → IP: {offered_ip}, DNS: {dns_ip}")
+        print(f"[DHCP] Got OFFER - IP: {offered_ip}, DNS: {dns_ip}")
 
         # ── REQUEST ──
         request = build_dhcp_packet(DHCP_REQUEST, xid, requested_ip=offered_ip)
@@ -154,7 +154,7 @@ def do_dhcp():
         # ── ACK ──
         ack_data, _ = sock.recvfrom(1024)
         my_ip, dns_from_ack = parse_dhcp_reply(ack_data)
-        print(f"[DHCP] Got ACK → assigned IP: {my_ip}")
+        print(f"[DHCP] Got ACK - assigned IP: {my_ip}")
 
         sock.close()
         return my_ip, (dns_from_ack or dns_ip or '127.0.0.1')
@@ -174,7 +174,7 @@ def build_dns_query(hostname):
     Question section:
       encoded_name + qtype(2) + qclass(2)
 
-    Name encoding: 'app.local' → \x03app\x05local\x00
+    Name encoding: 'app.local' \x03app\x05local\x00
     (each label is prefixed with its byte length, terminated by \x00)
 
     flags = 0x0100 = standard query with recursion desired
@@ -241,7 +241,7 @@ def do_dns(hostname, dns_server_ip):
     Uses the binary DNS protocol (not a library) — we build the packet ourselves.
     Returns the resolved IP, or falls back to 127.0.0.1 if anything fails.
     """
-    print(f"[CLIENT] DNS query for: {hostname} → asking {dns_server_ip}")
+    print(f"[CLIENT] DNS query for: {hostname}. asking {dns_server_ip}")
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(5)
@@ -254,7 +254,7 @@ def do_dns(hostname, dns_server_ip):
 
         ip = parse_dns_response(response, txid)
         if ip:
-            print(f"[DNS] {hostname} → {ip}")
+            print(f"[DNS] {hostname} : {ip}")
             return ip
         else:
             print(f"[DNS] No answer for {hostname}, using localhost")
@@ -318,7 +318,7 @@ def receive_over_rudp(filename, server_ip):
     filepath = os.path.join(DOWNLOADS_DIR, filename)
     with open(filepath, 'wb') as f:
         f.write(data)
-    print(f"[RUDP] Saved {len(data)} bytes → {filepath}")
+    print(f"[RUDP] Saved {len(data)} bytes : {filepath}")
 
 # ─── Step 4b: Receive file over TCP ───────────────────────────
 
@@ -334,7 +334,7 @@ def receive_over_tcp(filename, server_ip):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(60)
     sock.connect((server_ip, TCP_RECEIVE_PORT))
-    print(f"[TCP] Connected, receiving file...")
+    print(f"[TCP] Connected, receiving file..")
 
     data = b''
     while True:
@@ -348,7 +348,7 @@ def receive_over_tcp(filename, server_ip):
     filepath = os.path.join(DOWNLOADS_DIR, filename)
     with open(filepath, 'wb') as f:
         f.write(data)
-    print(f"[TCP] Saved {len(data)} bytes → {filepath}")
+    print(f"[TCP] Saved {len(data)} bytes : {filepath}")
 
 # ─── Download Flow ────────────────────────────────────────────
 
@@ -421,7 +421,7 @@ def handle_search(query, path_suffix, server_ip):
     Send a search or vibe request to the server, display the results list,
     and let the user pick one to download.
     """
-    print("\n[CLIENT] Searching...")
+    print("\n[CLIENT] Searching..")
     result = http_get(path_suffix, server_ip)
 
     if not result or result.get('status') != 'success':
@@ -442,7 +442,7 @@ def handle_search(query, path_suffix, server_ip):
     print(f"{'─' * 40}")
 
     if 'gemini_suggestions' in result:
-        print("✨ AI suggested:")
+        print("AI suggested:")
         for s in result['gemini_suggestions']:
             print(f"   - {s['title']} by {s['artist']}")
 
@@ -472,9 +472,9 @@ def show_history(server_ip):
 def main():
     """
     Startup sequence:
-      1. DHCP  → get our IP and the DNS server address
-      2. DNS   → resolve 'app.local' to the app server's IP
-      3. Loop  → show menu, handle user input, make HTTP requests to app server
+      1. DHCP - get our IP and the DNS server address
+      2. DNS - resolve 'app.local' to the app server's IP
+      3. Loop - show menu, handle user input, make HTTP requests to app server
     """
     print("\n[CLIENT] Starting up...")
 
