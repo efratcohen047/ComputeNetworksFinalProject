@@ -38,8 +38,8 @@ FORMAT_DNS_ANSWER = '!HHHIH4s'         # name, type, class, ttl, rdlength, rdata
 # These are the hostnames our client uses to find the servers.
 # The DHCP server can also add entries here dynamically via notify_dns().
 DNS_TABLE = {
-    b'agent.local': '10.0.0.21',
-    b'app.local':   '10.0.0.21'
+    b'agent.local': "172.20.10.8",
+    b'app.local':   "172.20.10.8"
 }
 
 # Cache for external domain answers so we don't forward every single query.
