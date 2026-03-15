@@ -9,7 +9,7 @@ from rudp import RUDPReceiver
 # ─── Constants ───────────────────────────────────────────────
 # These are the default server addresses used when running locally (single machine).
 # When running across two computers, DHCP_SERVER should be the server machine's LAN IP.
-DHCP_SERVER       = "10.0.0.8"
+DHCP_SERVER       = "172.20.10.3"
 DHCP_PORT         = 6767   # our custom DHCP port (real DHCP uses 67, requires admin)
 DNS_PORT          = 53     # standard DNS port
 APP_PORT          = 5050   # app_server.py HTTP control port
