@@ -62,7 +62,7 @@ class DHCPServer:
         # These never come from the pool and never expire.
         self.static_ips = {
             "00:11:22:33:44:55": "10.0.0.8",   # DNS server
-            "aa:bb:cc:dd:ee:ff": "10.0.0.8"    # Agent server
+            "aa:bb:cc:dd:ee:ff": "10.0.0.21"    # Agent server
         }
 
         # Once we send an OFFER, we hold the IP here until the client sends REQUEST.
