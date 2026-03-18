@@ -8,7 +8,7 @@ from rudp import RUDPSender
 
 # ─── Constants ───────────────────────────────────────────────
 # Three separate ports for three different jobs:
-#   5000 = HTTP control channel (client sends search/download commands here)
+#   5050 = HTTP control channel (client sends search/download commands here)
 #   5001 = RUDP file transfer (server pushes MP3 to client over our custom protocol)
 #   5002 = plain TCP file transfer (same idea, but using standard TCP)
 HTTP_PORT         = 5050
@@ -50,21 +50,21 @@ def parse_request(raw):
 
     Returns (None, None, {}) if the request is malformed.
     """
-    text       = raw.decode('utf-8', errors='ignore')
-    first_line = text.split('\r\n')[0]
-    parts      = first_line.split(' ')
-    if len(parts) < 2:
+    text       = raw.decode('utf-8', errors='ignore') #נתעלם מכל התווים הלא חוקיים על מנת לא לקרוס
+    first_line = text.split('\r\n')[0] #נעיף את החלק סיומת ונשאר רק עם הבקשה
+    parts      = first_line.split(' ') #נפריד לחלקים לפי הרווחים
+    if len(parts) < 2: #בדיקת שפיות- אם החבילה מכילה רק חלק אחד
         return None, None, {}
 
-    method    = parts[0]
-    full_path = parts[1]
+    method    = parts[0] #סוג בקשה- GET/SUCCESS CODE - 200 OK
+    full_path = parts[1] #הבקשה עצמה
 
-    if '?' in full_path:
-        path, query_string = full_path.split('?', 1)
+    if '?' in full_path: #? מצביע לנו שלפניו יש את הפעולה עצמה ולאחריו הפרמטרים
+        path, query_string = full_path.split('?', 1) #path==פעולה query_string==parmas, המס' 1 אומר שיעשה את זה רק על ה? הראשון
         # parse_qs returns lists: {'q': ['hello']} we flatten to {'q': 'hello'}
-        params = {k: v[0] for k, v in urllib.parse.parse_qs(query_string).items()}
+        params = {k: v[0] for k, v in urllib.parse.parse_qs(query_string).items()} #פעולת ניקוי שלוקחת את המילון המבולגן ומחזירה רשימה מסודרת
     else:
-        path   = full_path
+        path   = full_path #רק פעולה ללא פרמטרים
         params = {}
 
     return method, path, params
@@ -130,7 +130,7 @@ def handle_search(params):
     Mode 1: Search YouTube by song name.
     The 'q' param comes from the URL: /search?q=bohemian+rhapsody
     """
-    query = params.get('q', '')
+    query = params.get('q', '') #שם השיר שאנחנו רוצים לחפש ביוטיוב
     if not query:
         return {'status': 'error', 'message': 'No query provided'}
     return handle_request({'action': 'search', 'query': query})
@@ -226,8 +226,7 @@ def handle_history(_params):
 def route(method, path, params, client_addr):
     """
     Map the URL path to the right handler function.
-    This is a manual router — the equivalent of Flask's @app.route() decorators,
-    but implemented by hand so we fully understand and control the HTTP layer.
+    This is a manual router to control the HTTP layer.
     """
     if path == '/search':
         return handle_search(params)
@@ -255,8 +254,8 @@ def handle_client(conn, client_addr):
     """
     try:
         raw = b''
-        while b'\r\n\r\n' not in raw:
-            chunk = conn.recv(4096)
+        while b'\r\n\r\n' not in raw: #ככה הודעת HTTP מסתיימת לכן אנחנו קוראים עד לשם
+            chunk = conn.recv(4096) #כל צ'אנק בגודל 4096 ביטים
             if not chunk:
                 break
             raw += chunk
@@ -289,7 +288,7 @@ def start():
     """
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_sock.bind((HOST, HTTP_PORT))
+    server_sock.bind((HOST, HTTP_PORT)) #0.0.0.0 5050
     server_sock.listen(5)
 
     print(f"[APP SERVER] Listening on TCP port {HTTP_PORT}")
@@ -300,9 +299,9 @@ def start():
         while True:
             conn, client_addr = server_sock.accept()
             threading.Thread(
-                target=handle_client,
-                args=(conn, client_addr),
-                daemon=True
+                target=handle_client, #הפעולה שאנחנו רוצים שתקרה בתהליך
+                args=(conn, client_addr), #הפרטים של הלקוח שהתחבר
+                daemon=True #התהליך נסגר בדיוק כשכל התוכנית נסגרת
             ).start()
     except KeyboardInterrupt:
         print("\n[APP SERVER] Shutting down app server")
