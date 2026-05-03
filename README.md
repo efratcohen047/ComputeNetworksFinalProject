@@ -5,8 +5,6 @@ The client gets an IP via DHCP, resolves the server hostname via DNS,
 sends HTTP requests to the App Server, and receives MP3 files over our  
 custom **RUDP** protocol (Reliable UDP with congestion control).
 
----
-
 ## System Architecture
 
 ```
@@ -20,10 +18,7 @@ Client
                          YouTube (yt-dlp)
 ```
 
----
-
 ## Requirements
-
 - **Python 3.11+** (Python 3.9 is not supported by yt-dlp)
 - **FFmpeg** (must be installed separately for MP3 conversion)
 
@@ -68,7 +63,6 @@ python client.py
 > ```
 > Everything else (DNS, App Server IP) is resolved automatically.
 
----
 
 ## Features
 
@@ -79,7 +73,6 @@ python client.py
 | 3. Vibe mode | Describe a mood → AI suggests songs (Groq / Llama 3) |
 | 4. History | View all previously downloaded songs |
 
----
 
 ## Project Files
 
@@ -105,5 +98,5 @@ Our custom reliable UDP implementation includes:
 
 ---
 
-*Course: Computer Networks (7028310) — Ariel University*  
-*Instructor: Prof. Amit Dvir*
+*Course: Computer Networks — Ariel University*  
+*Final Grade: 92*
