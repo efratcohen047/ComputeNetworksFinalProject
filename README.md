@@ -1,4 +1,4 @@
-# 🎵 Music Agent — Computer Networks Final Project
+# 🎵 Music Agent: Computer Networks Final Project
 
 A client-server music downloader built from scratch using raw sockets.  
 The client gets an IP via DHCP, resolves the server hostname via DNS,  
@@ -99,4 +99,4 @@ Our custom reliable UDP implementation includes:
 ---
 
 *Course: Computer Networks — Ariel University*  
-*Final Grade: 92*
+*Final Grade: 93*
